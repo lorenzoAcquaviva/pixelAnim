@@ -1,0 +1,177 @@
+/* ── Modalità NODI ── */
+main { position: relative; }
+#btnNodes.active { border-color: var(--accent); color: var(--accent); }
+#nodeView { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); }
+#nodeView[hidden] { display: none; }
+
+.ng-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ng-title { font-family: var(--display); font-size: 0.75rem; letter-spacing: 0.15em; color: var(--text); margin-right: auto; }
+.ng-bar select { width: auto; max-width: 190px; }
+.ng-bar .btn { padding: 5px 10px; font-size: 0.72rem; }
+
+.ng-body { position: relative; flex: 1; min-height: 0; }
+.ng-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 24px 24px; }
+.ng-stage.panning { cursor: grabbing; }
+#ngWorld { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+#ngWires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.ng-wire { fill: none; stroke: var(--accent); stroke-width: 2.5; opacity: 0.9; }
+.ng-wire.temp { stroke: #7aaae8; stroke-dasharray: 5 4; }
+
+.ng-node { position: absolute; width: 214px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); font-size: 0.72rem; user-select: none; -webkit-user-select: none; }
+.ng-node.out { border-color: var(--accent); }
+.ng-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; font-family: var(--display); font-size: 0.62rem; letter-spacing: 0.12em; color: var(--accent); background: var(--surface2); border-radius: 5px 5px 0 0; cursor: move; touch-action: none; }
+.ng-del { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 6px; font-size: 0.85rem; }
+.ng-del:hover { color: var(--accent2); }
+.ng-ports { padding: 3px 0; }
+.ng-row { position: relative; display: flex; align-items: center; min-height: 22px; padding: 2px 14px; color: var(--text-dim); }
+.ng-row.right { justify-content: flex-end; }
+.sock { position: absolute; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); cursor: crosshair; touch-action: none; }
+.sock.in { left: -8px; }
+.sock.out { right: -8px; }
+.sock:hover { background: var(--accent); }
+
+.ng-params { display: flex; flex-direction: column; gap: 4px; padding: 2px 10px 8px; }
+.ng-p { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text); }
+.ng-p span { flex: 1; min-width: 0; }
+.ng-p input[type=number], .ng-p input[type=text], .ng-p select { width: 84px; padding: 3px 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 0.74rem; outline: none; }
+.ng-p input[type=text] { width: 112px; }
+.ng-p input:focus, .ng-p select:focus { border-color: var(--accent); }
+.ng-p input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+.ng-info { padding: 0 10px 8px; color: var(--text-dim); font-size: 0.66rem; }
+.ng-info:empty { display: none; }
+
+.ng-preview { position: absolute; right: 12px; bottom: 12px; z-index: 5; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); }
+#ngPrev { display: block; image-rendering: pixelated; border-radius: 3px; background: #0b0d13; max-width: 100%; }
+#ngPrevInfo { margin-top: 6px; font-size: 0.68rem; color: var(--text-dim); text-align: center; }
+
+@media (max-width: 700px) {
+  .sock { width: 22px; height: 22px; margin-top: -11px; }
+  .sock.in { left: -12px; }
+  .sock.out { right: -12px; }
+  .ng-node { width: 196px; }
+  .ng-p input[type=number], .ng-p select { width: 74px; }
+  .ng-p input[type=text] { width: 96px; }
+  .ng-preview { right: 6px; bottom: 6px; padding: 4px; }
+  #ngPrev { width: 120px; height: auto; }
+  .ng-bar { gap: 6px; padding: 5px 8px; }
+  .ng-bar select { max-width: 150px; }
+}
+
+/* ── Zoom, intervallo di attività ── */
+#ngWorld { transform-origin: 0 0; }
+.ng-zoom { display: inline-flex; gap: 2px; }
+.ng-zoom .btn { padding: 5px 8px; min-width: 30px; justify-content: center; }
+#ngZoomVal { min-width: 52px; }
+.ng-head { gap: 6px; }
+.ng-head > span:first-child { flex: 1; }
+.ng-badge { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0; color: var(--text-dim); }
+.ng-badge:empty { display: none; }
+.ng-del { margin-left: 2px; }
+.ng-range { display: flex; align-items: center; gap: 6px; color: var(--text-dim); padding-top: 4px; border-top: 1px dashed var(--border); margin-top: 2px; }
+.ng-range input { width: 54px; padding: 3px 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 0.74rem; outline: none; }
+.ng-range input:focus { border-color: var(--accent); }
+.ng-node { transition: opacity 0.15s; }
+.ng-node.off { opacity: 0.45; }
+
+/* ── Duplica nodo ── */
+.ng-dup { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 5px; font-size: 0.9rem; }
+.ng-dup:hover { color: var(--accent); }
+
+/* ── Colore dei nodi ── */
+.ng-col { width: 54px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; font-family: var(--mono); font-size: 0.72rem; }
+.ng-col:hover { border-color: var(--text); }
+.ng-pop { position: fixed; z-index: 400; display: grid; grid-template-columns: repeat(5, 30px); gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
+.ng-pop button { width: 30px; height: 30px; padding: 0; border: 2px solid var(--border); border-radius: 4px; cursor: pointer; font-family: var(--mono); font-size: 0.7rem; background: transparent; color: var(--text-dim); }
+.ng-pop button:hover { border-color: var(--text); }
+.ng-pop button.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+@media (max-width: 700px) { .ng-pop { grid-template-columns: repeat(5, 38px); } .ng-pop button { width: 38px; height: 38px; } .ng-col { width: 60px; height: 30px; } }
+/* Rimuove le frecce dai campi numerici su Chrome, Safari, Edge, Opera */
+.ng-p input[type=number]::-webkit-outer-spin-button,
+.ng-p input[type=number]::-webkit-inner-spin-button,
+.ng-range input::-webkit-outer-spin-button,
+.ng-range input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Rimuove le frecce su Firefox */
+.ng-p input[type=number],
+.ng-range input {
+  -moz-appearance: textfield;
+}
+
+/* Editor bitmap 16x16 */
+.ng-bitmap-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--bm-cols, 8), 9px);
+  gap: 2px;
+  padding: 5px;
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: max-content;
+  max-width: 100%;
+}
+.ng-bitmap-grid .ng-px {
+  display: block;
+  width: 9px;
+  height: 9px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  cursor: crosshair;
+}
+.ng-bitmap-grid .ng-px:hover {
+  outline: 1px solid #fff;
+  outline-offset: 1px;
+}
+
+.ng-bm-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.ng-bm-tools {
+  display: flex;
+  gap: 3px;
+}
+.ng-bm-tool,
+.ng-bm-fill,
+.ng-bm-undo,
+.ng-bm-redo,
+.ng-bm-clear {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ng-bm-tool:hover:not(:disabled),
+.ng-bm-fill:hover:not(:disabled),
+.ng-bm-undo:hover:not(:disabled),
+.ng-bm-redo:hover:not(:disabled),
+.ng-bm-clear:hover:not(:disabled) {
+  border-color: var(--text);
+  color: var(--text);
+}
+.ng-bm-tool.active,
+.ng-bm-fill.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface2);
+}
+.ng-bm-undo:disabled,
+.ng-bm-redo:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ng-bitmap-grid {
+  touch-action: none;
+}

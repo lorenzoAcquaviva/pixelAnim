@@ -1,0 +1,16 @@
+services:
+  pixelanim:
+    build: .
+    container_name: pixelanim
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/pixelanim.db
+    ports:
+      - "9900:9900"
+    volumes:
+      - pixelanim_data:/data
+
+volumes:
+  pixelanim_data:

@@ -1,0 +1,33 @@
+/* ── Colore ── */
+.pixel.on {
+  background: var(--px, var(--pixel-on));
+  box-shadow: 0 0 6px var(--px, var(--glow)), 0 0 14px var(--pxg, rgba(255,107,43,0.5)), inset 0 0 4px rgba(255,255,255,0.2);
+}
+.palette-row { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; scrollbar-width: none; }
+.palette-row::-webkit-scrollbar { display: none; }
+.palette-row[hidden] { display: none; }
+.sw { position: relative; width: 26px; height: 26px; flex-shrink: 0; padding: 0; border: 2px solid var(--border); border-radius: 4px; cursor: pointer; font-family: var(--mono); font-size: 0.62rem; line-height: 1; }
+.sw:hover { border-color: var(--text); }
+.sw.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.palette-row .tool-btn { flex-shrink: 0; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .sw { width: 32px; height: 32px; }
+  .palette-row { padding: 4px 8px; }
+}
+
+/* ── Streaming a colori ── */
+.stream-color { width: auto; max-width: 150px; padding: 5px 6px; font-size: 0.74rem; }
+@media (max-width: 700px) { #btnTest { order: 12; } .stream-color { order: 13; } }
+
+/* ── Finestra "INVIA A ESP": colore singolo o multiplo ── */
+.esp-color-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.esp-color-row label { display: block; margin-bottom: 4px; font-size: 0.65rem; color: var(--text-dim); letter-spacing: 0.1em; }
+.esp-color-row select, .esp-color-row input[type="number"] { padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 0.8rem; outline: none; }
+.esp-color-row input[type="number"] { width: 64px; }
+.esp-multi-only { display: none; }
+.esp-color-row.multi .esp-multi-only { display: block; }
+.esp-color-row .esp-save { display: none; align-items: center; gap: 6px; padding-bottom: 6px; }
+.esp-color-row.multi .esp-save { display: flex; }
+.esp-color-row .esp-save label { margin: 0; letter-spacing: 0.03em; cursor: pointer; }
+.esp-color-row .esp-save input { accent-color: var(--accent); width: 15px; height: 15px; }

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixelAnim — LED Matrix Editor</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/ux.css">
+<link rel="stylesheet" href="/static/css/mobile.css">
+<link rel="stylesheet" href="/static/css/nodes.css">
+<link rel="stylesheet" href="/static/css/color.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">PIXEL<span>ANIM</span></div>
+  <div style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em">SUPER LED MATRIX EDITOR</div>
+  <div class="sep"></div>
+  <div class="status-dot"></div>
+  <div class="status-label">LIVE</div>
+</header>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside>
+    <div class="sidebar-head">
+      <h2>ANIMAZIONI</h2>
+      <span id="animCount" style="font-size:0.65rem;color:var(--text-dim)">0</span>
+    </div>
+    <div class="anim-list" id="animList">
+      <div class="empty-state" style="padding:24px;font-size:0.75rem">
+        Nessuna animazione.<br>Creane una!
+      </div>
+    </div>
+    <div class="new-anim-form">
+      <div>
+        <label>NOME ANIMAZIONE</label>
+        <input type="text" id="newAnimName" placeholder="es. snake, heart, wave…" maxlength="32">
+      </div>
+      <div>
+        <label>DIMENSIONE MATRICE</label>
+        <select id="newAnimWidth">
+          <option value="8x8">8×8 — quadrata</option>
+          <option value="32x8">32×8 — striscia</option>
+          <option value="16x16">16×16 — quadrata grande</option>
+        </select>
+      </div>
+      <button class="btn primary" onclick="createAnimation()">＋ NUOVA ANIMAZIONE</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main>
+    <!-- Toolbar -->
+    <div class="editor-toolbar" id="editorToolbar">
+      <div class="editor-title" id="editorTitle" onclick="promptRename()" title="Clicca per rinominare">—</div>
+      <div class="toolbar-sep"></div>
+      <button class="btn icon" id="btnPrev" onclick="prevFrame()" title="Frame precedente" disabled>◀</button>
+      <span class="frame-counter" id="frameCounter">—</span>
+      <button class="btn icon" id="btnNext" onclick="nextFrame()" title="Frame successivo" disabled>▶</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn" id="btnAddFrame" onclick="addFrame(false)" disabled>＋ FRAME</button>
+      <button class="btn" id="btnDupFrame" onclick="addFrame(true)" disabled>⧉ DUPLICA</button>
+      <button class="btn danger" id="btnDelFrame" onclick="deleteCurrentFrame()" disabled>✕ ELIMINA</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn" id="btnPreview" onclick="openPreview()" disabled>▶ ANTEPRIMA</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn primary" id="btnSave" onclick="saveCurrentFrame()" disabled>💾 SALVA</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn" id="btnSendEsp" onclick="openSendModal()" disabled style="border-color:#39a86b;color:#39a86b">⬆ INVIA A ESP</button>
+    </div>
+
+    <!-- Tools -->
+    <div class="tools-row">
+      <button class="tool-btn active" id="toolDraw" onclick="setTool('draw')">✏ DISEGNA</button>
+      <button class="tool-btn" id="toolErase" onclick="setTool('erase')">◻ CANCELLA</button>
+      <button class="tool-btn" id="toolFill" onclick="setTool('fill')">▦ RIEMPI</button>
+      <div class="spacer"></div>
+      <button class="tool-btn" onclick="clearFrame()">⊘ AZZERA</button>
+      <button class="tool-btn" onclick="invertFrame()">⊞ INVERTI</button>
+      <button class="tool-btn" onclick="shiftLeft()">← SPOSTA</button>
+      <button class="tool-btn" onclick="shiftRight()">→ SPOSTA</button>
+      <div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>
+      <div class="onion-control">
+        <label>◉ ONION</label>
+        <div class="onion-steps">
+          <button class="onion-step" id="onion0" onclick="setOnion(0)" title="Nessun ghost">0</button>
+          <button class="onion-step" id="onion1" onclick="setOnion(1)" title="1 frame precedente">1</button>
+          <button class="onion-step" id="onion2" onclick="setOnion(2)" title="2 frame precedenti">2</button>
+          <button class="onion-step active" id="onion3" onclick="setOnion(3)" title="3 frame precedenti">3</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="canvas-area" id="canvasArea">
+      <div class="empty-state" id="emptyState">
+        <span class="big">◻</span>
+        Seleziona o crea un'animazione<br>per iniziare a disegnare
+      </div>
+    </div>
+
+    <!-- Frame strip -->
+    <div class="frame-strip" id="frameStrip"></div>
+  </main>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal">
+    <h3>▶ ANTEPRIMA ANIMAZIONE</h3>
+    <div class="preview-wrap">
+      <canvas id="previewCanvas" width="320" height="80"></canvas>
+      <div class="preview-fps">
+        <span>FPS</span>
+        <input type="range" id="fpsSlider" min="1" max="30" value="8" style="width:120px">
+        <span id="fpsVal">8</span>
+        <button class="btn" id="btnPlayPause" onclick="togglePlay()" style="margin-left:8px">⏸ PAUSA</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePreview()">CHIUDI</button>
+    </div>
+  </div>
+</div>
+
+<!-- ESPHome Send Modal -->
+<div class="modal-overlay" id="espModal">
+  <div class="modal" style="min-width:380px">
+    <h3>⬆ INVIA A ESPHOME</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
+
+      <div style="display:flex;gap:10px">
+        <div style="flex:1">
+          <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">IP DISPOSITIVO</label>
+          <input type="text" id="espIp" placeholder="es. 192.168.1.50" style="width:100%">
+        </div>
+        <div style="width:80px">
+          <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">PORTA API</label>
+          <input type="number" id="espPort" value="6053" min="1" max="65535"
+            style="width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:var(--mono);font-size:0.8rem;outline:none">
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">CHIAVE API (noise_psk)</label>
+        <input type="text" id="espApiKey" value=""
+          style="width:100%;font-size:0.7rem;letter-spacing:0.03em">
+      </div>
+
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        <div style="flex:1">
+          <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">COLORE LED</label>
+          <input type="color" id="espColor" value="#00ff66"
+            style="width:100%;height:34px;padding:2px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">LUMINOSITÀ %</label>
+          <input type="number" id="espBright" value="100" min="1" max="100"
+            style="width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);font-family:var(--mono);font-size:0.8rem;outline:none">
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:3px">
+        <input type="checkbox" id="espRotate" style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer">
+        <label for="espRotate" style="font-size:0.72rem;color:var(--text);cursor:pointer;letter-spacing:0.05em">
+          ↻ RUOTA 180° (board montata capovolta)
+        </label>
+      </div>
+      <div>
+        <label style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;display:block;margin-bottom:4px">HEX STREAM <span id="espHexInfo" style="color:var(--text-dim);font-weight:normal"></span></label>
+        <div id="espHexPreview" style="
+          background:var(--bg);border:1px solid var(--border);border-radius:3px;
+          padding:8px 10px;font-size:0.65rem;color:#4a80c0;letter-spacing:0.05em;
+          word-break:break-all;max-height:80px;overflow-y:auto;line-height:1.8;
+          font-family:var(--mono)
+        ">—</div>
+      </div>
+
+      <!-- Status -->
+      <div id="espStatus" style="font-size:0.72rem;color:var(--text-dim);min-height:1.4em;text-align:center"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeEspModal()">ANNULLA</button>
+      <button class="btn" id="btnEspPreviewHex" onclick="previewEspHex()" style="border-color:#4a6faa;color:#7aaae8">👁 ANTEPRIMA HEX</button>
+      <button class="btn" id="btnEspSend" onclick="sendToEsp()" style="border-color:#39a86b;color:#39a86b;font-weight:bold">⬆ INVIA</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/static/js/state.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/sidebar.js"></script>
+<script src="/static/js/editor.js"></script>
+<script src="/static/js/frames.js"></script>
+<script src="/static/js/preview.js"></script>
+<script src="/static/js/esp.js"></script>
+<script src="/static/js/ux.js"></script>
+<script src="/static/js/draft.js"></script>
+<script src="/static/js/stream.js"></script>
+<script src="/static/js/layout.js"></script>
+<script src="/static/js/preview-panel.js"></script>
+<script src="/static/js/mobile.js"></script>
+<script src="/static/js/nodes-engine.js"></script>
+<script src="/static/js/nodes-ui.js"></script>
+<script src="/static/js/color.js"></script>
+<script src="/static/js/send-color.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>
