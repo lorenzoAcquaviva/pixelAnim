@@ -1,0 +1,338 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PixelAnim – example ESPHome `api:` block (reference firmware side)
+#
+# This is the board-side counterpart of the PixelAnim backend. It exposes the
+# five API services the backend calls (names and arguments are the real
+# contract; everything else in this file is just one possible implementation):
+#
+#   mostra_frame              monochrome live frame
+#   mostra_frame_colore       indexed-colour live frame (+ optional palette)
+#   ferma_stream              stop streaming, restore the previous state
+#   carica_animazione         monochrome animation upload (saved to flash)
+#   carica_animazione_colore  colour animation upload (optionally saved to flash)
+#
+# Service names can be changed on the backend with the environment variables
+# STREAM_SERVICE, COLOR_SERVICE, STOP_SERVICE, COLOR_LOAD_SERVICE.
+# Buffer limits must match MONO_MAX_BYTES / COLOR_MAX_BYTES on the backend.
+#
+# Wire format
+#   mono frame   : hex string, 1 bit per pixel, row by row (8x8 -> 8 bytes = 16 hex chars)
+#   colour frame : hex string, 1 hex digit per pixel = palette index 0-F (8x8 -> 64 chars)
+#   palette      : 16 colours x RRGGBB = 96 hex chars (empty string = keep the previous one)
+#
+# API encryption key: generate your own (`openssl rand -base64 32`), keep it in
+# secrets.yaml and paste the same value in the PixelAnim UI / ESP_API_KEY.
+# NEVER commit a real key.
+#
+# This file is a *fragment*: your device config must also provide the globals,
+# scripts and light effects listed in "WHAT YOUR CONFIG MUST PROVIDE" below.
+# It was derived from a working 8x8 firmware and adapted for readability;
+# re-test on your hardware after copying it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  # Adapt these to your matrix (8x8 shown). Frame sizes must match the backend.
+  matrix_pixels: "64"        # width * height
+  mono_frame_bytes: "8"      # matrix_pixels / 8
+  mono_frame_hex: "16"       # mono_frame_bytes * 2
+  color_frame_hex: "64"      # = matrix_pixels (one hex digit per pixel)
+  mono_buf_bytes: "2048"     # saved monochrome animation buffer (backend: MONO_MAX_BYTES)
+  color_buf_bytes: "8192"    # saved colour animation buffer, 2 pixels per byte (backend: COLOR_MAX_BYTES)
+
+# ── WHAT YOUR CONFIG MUST PROVIDE ────────────────────────────────────────────
+# Light  `led_matrix` with two effects named EXACTLY:
+#          "Color animation"  – plays color_anim_buf/color_anim_pal at color_anim_fps
+#          "Color stream"     – shows stream_px with stream_pal
+#        and some logic that renders the monochrome custom animation
+#        (mono_buf) when `anim_selected == 99` and `light_refresh_requested` is set.
+# Scripts `enter_color_stream` (set color_stream_active = true, switch the light
+#          to the "Color stream" effect) and `exit_color_stream` (set it to false
+#          and leave that effect).
+# Optional: add an early `return` in the lambdas below if your board has
+#          protections (overheat, "receive" switch, ...).
+globals:
+  - id: mono_buf                      # saved monochrome animation (1 bit/pixel frames)
+    type: uint8_t[${mono_buf_bytes}]
+    initial_value: '{0}'
+  - id: mono_len
+    type: int
+    initial_value: '0'
+  - id: mono_color_r
+    type: uint8_t
+    initial_value: '255'
+  - id: mono_color_g
+    type: uint8_t
+    initial_value: '255'
+  - id: mono_color_b
+    type: uint8_t
+    initial_value: '255'
+  - id: anim_selected                 # 99 = custom animation / live stream slot
+    type: int
+    initial_value: '0'
+  - id: stream_prev_selected          # what to restore when streaming ends (-1 = nothing)
+    type: int
+    initial_value: '-1'
+  - id: light_refresh_requested
+    type: bool
+    initial_value: 'false'
+  - id: stream_px                     # live colour frame, 1 palette index per pixel
+    type: uint8_t[${matrix_pixels}]
+    initial_value: '{0}'
+  - id: stream_pal                    # 16 x RGB
+    type: uint8_t[48]
+    initial_value: '{0}'
+  - id: color_stream_active
+    type: bool
+    initial_value: 'false'
+  - id: color_anim_buf                # stored colour animation, 2 pixels per byte
+    type: uint8_t[${color_buf_bytes}]
+    initial_value: '{0}'
+  - id: color_anim_pal
+    type: uint8_t[48]
+    initial_value: '{0}'
+  - id: color_anim_frames
+    type: int
+    initial_value: '0'
+  - id: color_anim_fps
+    type: int
+    initial_value: '10'
+  - id: color_anim_loaded
+    type: bool
+    initial_value: 'false'
+  - id: color_anim_prev_effect
+    type: std::string
+    initial_value: '"None"'
+
+api:
+  reboot_timeout: 0s              # don't reboot when Home Assistant is unreachable (standalone use)
+  encryption:
+    key: !secret api_encryption_key
+  services:
+
+    # ── Monochrome animation upload ────────────────────────────────────────
+    - service: carica_animazione
+      variables:
+        hex_data: string          # all frames concatenated, 1 bit per pixel
+        color_r: int
+        color_g: int
+        color_b: int
+      then:
+        - lambda: |-
+            std::string s = hex_data;
+            if (s.empty() || s.length() > (size_t) (2 * ${mono_buf_bytes})) {
+              ESP_LOGW("pixelanim", "carica_animazione: invalid data (len=%d)", (int) s.length());
+              return;
+            }
+            id(mono_len) = 0;
+            size_t i = 0;
+            while (i + 1 < s.length() && id(mono_len) < ${mono_buf_bytes}) {
+              uint8_t b = (uint8_t) strtol(s.substr(i, 2).c_str(), nullptr, 16);
+              id(mono_buf)[id(mono_len)++] = b;
+              i += 2;
+            }
+            id(mono_color_r) = (uint8_t) color_r;
+            id(mono_color_g) = (uint8_t) color_g;
+            id(mono_color_b) = (uint8_t) color_b;
+            auto pref_buf = global_preferences->make_preference<uint8_t[${mono_buf_bytes}]>(0x414E494D, true);
+            auto pref_len = global_preferences->make_preference<int>(0x414E494E, true);
+            auto pref_r   = global_preferences->make_preference<uint8_t>(0x414E494F, true);
+            auto pref_g   = global_preferences->make_preference<uint8_t>(0x414E4950, true);
+            auto pref_b   = global_preferences->make_preference<uint8_t>(0x414E4951, true);
+            static uint8_t tmp_buf[${mono_buf_bytes}] = {0};   // static: avoid a big stack frame
+            memset(tmp_buf, 0, sizeof(tmp_buf));
+            memcpy(tmp_buf, id(mono_buf), id(mono_len));
+            pref_buf.save(&tmp_buf);
+            pref_len.save(&id(mono_len));
+            uint8_t r8 = id(mono_color_r), g8 = id(mono_color_g), b8 = id(mono_color_b);
+            pref_r.save(&r8); pref_g.save(&g8); pref_b.save(&b8);
+            global_preferences->sync();
+            id(anim_selected) = 99;
+            id(light_refresh_requested) = true;
+            ESP_LOGI("pixelanim", "carica_animazione: %d frames (%d bytes), RGB(%d,%d,%d) saved",
+              id(mono_len) / ${mono_frame_bytes}, id(mono_len),
+              id(mono_color_r), id(mono_color_g), id(mono_color_b));
+
+    # ── Monochrome live frame (RAM only, no flash writes) ──────────────────
+    - service: mostra_frame
+      variables:
+        hex_data: string          # one frame = ${mono_frame_hex} hex chars
+        color_r: int
+        color_g: int
+        color_b: int
+      then:
+        - lambda: |-
+            if (hex_data.length() != ${mono_frame_hex}) return;
+            auto nib = [](char c) -> int {
+              if (c >= '0' && c <= '9') return c - '0';
+              if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+              if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+              return -1;
+            };
+            uint8_t fr[${mono_frame_bytes}];
+            for (int k = 0; k < ${mono_frame_bytes}; k++) {
+              int hi = nib(hex_data[2 * k]);
+              int lo = nib(hex_data[2 * k + 1]);
+              if (hi < 0 || lo < 0) return;
+              fr[k] = (uint8_t) ((hi << 4) | lo);
+            }
+            // remember what was playing, to restore it when streaming ends
+            if (id(anim_selected) != 99 || id(stream_prev_selected) < 0)
+              id(stream_prev_selected) = id(anim_selected);
+            // nothing to do if this exact frame is already displayed
+            if (id(anim_selected) == 99 && id(mono_len) == ${mono_frame_bytes} &&
+                id(mono_color_r) == (uint8_t) color_r && id(mono_color_g) == (uint8_t) color_g &&
+                id(mono_color_b) == (uint8_t) color_b &&
+                memcmp(id(mono_buf), fr, ${mono_frame_bytes}) == 0) return;
+            memcpy(id(mono_buf), fr, ${mono_frame_bytes});
+            id(mono_len) = ${mono_frame_bytes};
+            id(mono_color_r) = (uint8_t) color_r;
+            id(mono_color_g) = (uint8_t) color_g;
+            id(mono_color_b) = (uint8_t) color_b;
+            id(anim_selected) = 99;
+            id(light_refresh_requested) = true;
+
+    # ── Colour live frame (indexed colours + optional palette) ─────────────
+    - service: mostra_frame_colore
+      variables:
+        hex_data: string          # ${color_frame_hex} hex digits: palette index (0-F) of each pixel, row by row
+        palette: string           # 96 hex digits (16 x RRGGBB); empty string = keep the previous palette
+      then:
+        - lambda: |-
+            auto nib = [](char ch) -> int {
+              if (ch >= '0' && ch <= '9') return ch - '0';
+              if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+              if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+              return -1;
+            };
+            if (hex_data.length() != ${color_frame_hex}) {
+              ESP_LOGW("pixelanim", "hex_data has %d chars (expected ${color_frame_hex})", (int) hex_data.length());
+              return;
+            }
+            uint8_t px[${matrix_pixels}];
+            for (int i = 0; i < ${matrix_pixels}; i++) {
+              int v = nib(hex_data[i]);
+              if (v < 0) {
+                ESP_LOGW("pixelanim", "non-hex character in pixels (position %d)", i);
+                return;
+              }
+              px[i] = (uint8_t) v;
+            }
+            if (palette.length() != 0 && palette.length() != 96) {
+              ESP_LOGW("pixelanim", "palette has %d chars (expected 96, or empty)", (int) palette.length());
+              return;
+            }
+            if (palette.length() == 96) {
+              uint8_t pal[48];
+              for (int i = 0; i < 48; i++) {
+                int hi = nib(palette[2 * i]);
+                int lo = nib(palette[2 * i + 1]);
+                if (hi < 0 || lo < 0) {
+                  ESP_LOGW("pixelanim", "non-hex character in palette");
+                  return;
+                }
+                pal[i] = (uint8_t) ((hi << 4) | lo);
+              }
+              memcpy(id(stream_pal), pal, 48);
+            }
+            memcpy(id(stream_px), px, ${matrix_pixels});
+            id(enter_color_stream).execute();
+
+    # ── End of streaming: leave the stream and restore the previous effect ─
+    # The saved monochrome animation is restored only if a monochrome stream happened.
+    - service: ferma_stream
+      then:
+        - script.execute: exit_color_stream
+        - lambda: |-
+            if (id(stream_prev_selected) < 0) return;
+            auto pref_buf = global_preferences->make_preference<uint8_t[${mono_buf_bytes}]>(0x414E494D, true);
+            auto pref_len = global_preferences->make_preference<int>(0x414E494E, true);
+            auto pref_r   = global_preferences->make_preference<uint8_t>(0x414E494F, true);
+            auto pref_g   = global_preferences->make_preference<uint8_t>(0x414E4950, true);
+            auto pref_b   = global_preferences->make_preference<uint8_t>(0x414E4951, true);
+            static uint8_t tmp_buf[${mono_buf_bytes}];
+            int len = 0;
+            uint8_t r8 = 0, g8 = 0, b8 = 0;
+            if (pref_len.load(&len) && len > 0 && len <= ${mono_buf_bytes} && pref_buf.load(&tmp_buf)) {
+              memcpy(id(mono_buf), tmp_buf, len);
+              id(mono_len) = len;
+              if (pref_r.load(&r8) && pref_g.load(&g8) && pref_b.load(&b8)) {
+                id(mono_color_r) = r8;
+                id(mono_color_g) = g8;
+                id(mono_color_b) = b8;
+              }
+            }
+            id(anim_selected) = id(stream_prev_selected);
+            id(stream_prev_selected) = -1;
+            id(light_refresh_requested) = true;
+
+    # ── Colour animation upload ────────────────────────────────────────────
+    - service: carica_animazione_colore
+      variables:
+        hex_data: string          # all frames concatenated, ${color_frame_hex} hex digits per frame (palette indices)
+        palette: string           # 96 hex digits: 16 x RRGGBB
+        fps: int                  # clamped to 1..30
+        salva: bool               # true = also store in flash (survives reboot)
+      then:
+        - lambda: |-
+            auto nib = [](char ch) -> int {
+              if (ch >= '0' && ch <= '9') return ch - '0';
+              if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+              if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+              return -1;
+            };
+            size_t n = hex_data.length();
+            if (n == 0 || n % ${color_frame_hex} != 0 || n > (size_t) (2 * ${color_buf_bytes})) {
+              ESP_LOGW("pixelanim", "hex_data has %d chars: need a multiple of ${color_frame_hex}, at most %d", (int) n, 2 * ${color_buf_bytes});
+              return;
+            }
+            if (palette.length() != 96) {
+              ESP_LOGW("pixelanim", "palette has %d chars (expected 96)", (int) palette.length());
+              return;
+            }
+            for (size_t i = 0; i < n; i++) {
+              if (nib(hex_data[i]) < 0) {
+                ESP_LOGW("pixelanim", "non-hex character in frames (position %d)", (int) i);
+                return;
+              }
+            }
+            uint8_t pal[48];
+            for (int i = 0; i < 48; i++) {
+              int hi = nib(palette[2 * i]);
+              int lo = nib(palette[2 * i + 1]);
+              if (hi < 0 || lo < 0) {
+                ESP_LOGW("pixelanim", "non-hex character in palette");
+                return;
+              }
+              pal[i] = (uint8_t) ((hi << 4) | lo);
+            }
+            // everything is valid: now write
+            memset(id(color_anim_buf), 0, sizeof(id(color_anim_buf)));
+            for (size_t k = 0; k < n / 2; k++) {
+              id(color_anim_buf)[k] = (uint8_t) ((nib(hex_data[2 * k]) << 4) | nib(hex_data[2 * k + 1]));
+            }
+            memcpy(id(color_anim_pal), pal, 48);
+            int frames = (int) (n / ${color_frame_hex});
+            int rate = fps < 1 ? 1 : (fps > 30 ? 30 : fps);
+            id(color_anim_frames) = frames;
+            id(color_anim_fps) = rate;
+            id(color_anim_loaded) = true;
+            if (salva) {
+              auto p_buf = global_preferences->make_preference<uint8_t[${color_buf_bytes}]>(0x434F4C01, true);
+              auto p_pal = global_preferences->make_preference<uint8_t[48]>(0x434F4C02, true);
+              auto p_meta = global_preferences->make_preference<int[2]>(0x434F4C03, true);
+              int meta[2] = {frames, rate};
+              bool ok = p_buf.save(&id(color_anim_buf)) && p_pal.save(&id(color_anim_pal)) && p_meta.save(&meta);
+              global_preferences->sync();
+              if (!ok) ESP_LOGW("pixelanim", "saving to flash FAILED (not enough NVS space?)");
+            }
+            ESP_LOGI("pixelanim", "colour animation: %d frames, %d fps, saved to flash: %s", frames, rate, salva ? "yes" : "no");
+            std::string cur = std::string(id(led_matrix).get_effect_name().c_str());
+            if (cur != "Color animation") {
+              if (cur != "Color stream") id(color_anim_prev_effect) = cur;
+              id(color_stream_active) = false;
+              auto call = id(led_matrix).turn_on();
+              call.set_effect("Color animation");
+              call.perform();
+              if (std::string(id(led_matrix).get_effect_name().c_str()) != "Color animation")
+                ESP_LOGW("pixelanim", "effect 'Color animation' NOT found: add it to the light's effects with this exact name");
+            }
